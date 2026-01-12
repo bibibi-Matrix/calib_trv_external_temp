@@ -74,51 +74,49 @@ action:
             temp_accuracy: 0.5
             
             # Логика калибровки в зависимости от режима работы
-            target_calib_raw: >
-              {%- set diff = temp_diff | float -%}
-              {%- if hvac_mode == 'off' -%}
+            target_calib_raw: >-
+              {% set diff = temp_diff | float %}
+              {% if hvac_mode == 'off' %}
                 {{ diff }}
-              {%- elif hvac_action == 'heating' -%}
+              {% elif hvac_action == 'heating' %}
                 {{ diff - temp_accuracy }}
-              {%- elif hvac_action == 'idle' -%}
+              {% elif hvac_action == 'idle' %}
                 {{ diff + temp_accuracy }}
-              {%- else -%}
-                {{ diff }}
-              {%- endif -%}
+              {% else %}
+              {{ diff }}
+              {% endif %}
             
-            # Принудительное преобразование в число
-            target_calib_forced_float: "{{ (target_calib_raw | string | regex_replace('[^0-9.-]', '') | float(0)) }}"
-            
-            # Безопасное округление до ближайшего 0.5
-            target_calib_numeric: >
-              {%- set val = target_calib_forced_float | float -%}
-              {%- set rounded = (val * 2) | round / 2 -%}
-              {{ rounded }}
+            # Преобразуем в число и округляем до ближайшего 0.5
+            target_calib_numeric: >-
+              {% set raw_val = target_calib_raw | float %}
+              {{ (raw_val / 0.5) | round * 0.5 }}
             
             # Ограничиваем диапазон калибровки (-9 до +9)
-            target_calib_bounded: >
-              {%- set val = target_calib_numeric | float -%}
-              {%- if val > 9 -%}
-                9
-              {%- elif val < -9 -%}
-                -9
-              {%- else -%}
-                {{ val }}
-              {%- endif -%}
+            target_calib_final: >-
+              {% set val = target_calib_numeric | float %}
+              {{ [9, val] | min | round(1) }}
+              
+            target_calib_final_clamped: >-
+              {% set val = target_calib_final | float %}
+              {{ [-9, val] | max | round(1) }}
             
-            # Финальное значение
-            target_calib_final: "{{ target_calib_bounded | float | round(1) }}"
-            
-            # Проверяем необходимость изменения
-            calib_needed: >
-              {%- set current = actual_calib | float | round(1) -%}
-              {%- set target = target_calib_final | float | round(1) -%}
+            # Проверяем необходимость изменения (с учетом точности 0.1)
+            calib_needed: >-
+              {% set current = actual_calib | float | round(1) %}
+              {% set target = target_calib_final_clamped | float | round(1) %}
               {{ current != target }}
 
         - alias: "Проверка необходимости калибровки"
           condition: template
-          value_template: "{{ calib_needed | bool }}"
+          value_template: "{{ calib_needed }}"
 
         - service: number.set_value
+          data:
+            value: "{{ target_calib_final_clamped }}"
           target:
-            entity_id: "{{ device_cal
+            entity_id: "{{ device_calib }}"
+
+  - delay: 5
+
+mode: single
+max_exceeded: silent
