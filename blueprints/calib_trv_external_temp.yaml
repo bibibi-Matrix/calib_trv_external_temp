@@ -39,7 +39,7 @@ blueprint:
           min: 0
           max: 2
           step: 0.1
-  source_url: https://github.com/bibibi-Matrix/calibrate_beok_trv/blob/main/blueprints/calib_trv_external_temp.yaml
+  source_url: https://github.com/bibibi-Matrix/calib_trv_external_temp/blob/main/blueprints/calib_trv_external_temp.yaml
 alias: Калибровка термоголовки TRV-M2Z
 description: ''
 variables:
