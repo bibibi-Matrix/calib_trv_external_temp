@@ -21,7 +21,7 @@ blueprint:
           domain:
             - climate
           multiple: true
-  source_url: https://github.com/bibibi-Matrix/calib_trv_external_temp/blob/main/blueprints/calib_test.yaml
+  source_url: https://github.com/bibibi-Matrix/calib_trv_external_temp/blob/main/blueprints/calib_trv_external_temp.yaml
 
 alias: Калибровка термоголовки TRV-M2Z (улучшенная)
 description: ''
@@ -60,15 +60,15 @@ action:
         - variables:
             climate_name: "{{ repeat.item }}"
             device_calib: "number.{{ climate_name.removeprefix('climate.') }}_local_temperature_calibration"
-            external_temp: "{{ states(external_temperature) | float() }}"
-            local_temp: "{{ state_attr(climate_name, 'current_temperature') | float() }}"
-            target_temp: "{{ state_attr(climate_name, 'temperature') | float() }}"
+            external_temp: "{{ states(external_temperature) | float }}"
+            local_temp: "{{ state_attr(climate_name, 'current_temperature') | float }}"
+            target_temp: "{{ state_attr(climate_name, 'temperature') | float }}"
             hvac_action: "{{ state_attr(climate_name, 'hvac_action') }}"
             hvac_mode: "{{ states(climate_name) }}"
             actual_calib: "{{ states(device_calib) | float(0) }}"
             
             # Определяем разницу температур
-            temp_diff: "{{ (external_temp - local_temp) | float }}"
+            temp_diff: "{{ (external_temp | float - local_temp | float) }}"
             
             # Температурная точность (обычно 0.5°C для большинства TRV)
             temp_accuracy: 0.5
@@ -86,17 +86,24 @@ action:
                 {{ diff }}
               {% endif %}
             
-            # Преобразуем в число для дальнейших вычислений
-            target_calib_numeric: "{{ target_calib_raw | float }}"
-            
-            # Округляем до ближайшего 0.5
-            target_calib_step: "{{ ((target_calib_numeric / 0.5) | round) * 0.5 }}"
+            # Преобразуем в число и округляем до ближайшего 0.5
+            target_calib_numeric: >
+              {% set raw_val = target_calib_raw | float %}
+              {{ (raw_val / 0.5) | round * 0.5 }}
             
             # Ограничиваем диапазон калибровки (-9 до +9)
-            target_calib_final: "{{ [[target_calib_step, 9] | min, -9] | max }}"
+            target_calib_final: >
+              {% set val = target_calib_numeric | float %}
+              {{ [9, val] | min | round(1) }}
+            target_calib_final_clamped: >
+              {% set val = target_calib_final | float %}
+              {{ [-9, val] | max | round(1) }}
             
             # Проверяем необходимость изменения (с учетом точности 0.1)
-            calib_needed: "{{ (actual_calib | round(1)) != (target_calib_final | round(1)) }}"
+            calib_needed: >
+              {% set current = actual_calib | float | round(1) %}
+              {% set target = target_calib_final_clamped | float | round(1) %}
+              {{ current != target }}
 
         - alias: "Проверка необходимости калибровки"
           condition: template
@@ -106,7 +113,7 @@ action:
           target:
             entity_id: "{{ device_calib }}"
           data:
-            value: "{{ target_calib_final }}"
+            value: "{{ target_calib_final_clamped }}"
 
   - delay: 5
 
