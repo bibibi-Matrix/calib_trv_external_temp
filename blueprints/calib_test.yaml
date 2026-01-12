@@ -68,32 +68,32 @@ action:
             actual_calib: "{{ states(device_calib) | float(0) }}"
             
             # Определяем разницу температур
-            temp_diff: "{{ external_temp - local_temp }}"
+            temp_diff: "{{ (external_temp - local_temp) | float }}"
             
             # Температурная точность (обычно 0.5°C для большинства TRV)
             temp_accuracy: 0.5
             
             # Логика калибровки в зависимости от режима работы
             target_calib_raw: >
+              {% set diff = temp_diff | float %}
               {% if hvac_mode == 'off' %}
-                # При off используем базовую калибровку
-                {{ temp_diff }}
+                {{ diff }}
               {% elif hvac_action == 'heating' %}
-                # При нагреве держим температуру на нижней границе
-                {{ temp_diff - temp_accuracy }}
+                {{ diff - temp_accuracy }}
               {% elif hvac_action == 'idle' %}
-                # При idle используем высокую границу (учет верхней границы точности)
-                {{ temp_diff + temp_accuracy }}
+                {{ diff + temp_accuracy }}
               {% else %}
-                # По умолчанию базовая калибровка
-                {{ temp_diff }}
+                {{ diff }}
               {% endif %}
             
+            # Преобразуем в число для дальнейших вычислений
+            target_calib_numeric: "{{ target_calib_raw | float }}"
+            
             # Округляем до ближайшего 0.5
-            target_calib_step: "{{ (target_calib_raw / 0.5) | round * 0.5 }}"
+            target_calib_step: "{{ ((target_calib_numeric / 0.5) | round) * 0.5 }}"
             
             # Ограничиваем диапазон калибровки (-9 до +9)
-            target_calib_final: "{{ [ ([target_calib_step, 9] | min), -9 ] | max }}"
+            target_calib_final: "{{ [[target_calib_step, 9] | min, -9] | max }}"
             
             # Проверяем необходимость изменения (с учетом точности 0.1)
             calib_needed: "{{ (actual_calib | round(1)) != (target_calib_final | round(1)) }}"
