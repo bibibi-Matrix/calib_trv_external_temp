@@ -21,7 +21,7 @@ blueprint:
           domain:
             - climate
           multiple: true
-  source_url: https://github.com/bibibi-Matrix/calib_trv_external_temp/blob/main/blueprints/calib_trv_external_temp.yaml
+  source_url: https://github.com/bibibi-Matrix/calib_trv_external_temp/blob/main/blueprints/calib_test.yaml
 
 alias: Калибровка термоголовки TRV-M2Z (улучшенная)
 description: ''
