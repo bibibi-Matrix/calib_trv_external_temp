@@ -1,47 +1,34 @@
 blueprint:
-  name: Калибровка термоголовки TRV-M2Z на основе внешнего датчика температуры с учётом режима нагрева
+  name: Калибровка термоголовки TRV-M2Z на основе внешнего датчика с логикой нагрева
   description: |
-    Автоматическая калибровка температуры термоголовки TRV-M2Z на основе показаний внешнего датчика температуры,
-    с учетом текущего режима работы (нагрев/остывание).
+    Автоматическая калибровка температуры термоголовки TRV-M2Z на основе внешнего датчика температуры,
+    с учётом текущего режима работы (нагрев/остывание).
   domain: automation
   input:
     external_temp:
       name: Выберите внешний датчик температуры
-      description: Список внешних датчиков температуры, используемых как источник показаний температуры.
       selector:
         entity:
-          domain:
-            - sensor
-          device_class:
-            - temperature
-          multiple: false
+          domain: sensor
+          device_class: temperature
     climate_names:
-      name: Выберите термоголовку TRV-M2Z
-      description: Список термоголовок.
+      name: Термоголовки для калибровки
       selector:
         entity:
-          domain:
-            - climate
+          domain: climate
           multiple: true
     offset_factor:
       name: Коэффициент коррекции
       description: >
-        Добавляет взвешенную разницу между текущей и целевой температурой.
-        Формула: коэффициент * (фактическая температура - целевая температура).
-
-        При следующих значениях:
-        0   — коррекция не применяется;
-        0.5 — частичная компенсация;
-        1   — полная компенсация;
-        >1  — усиленная коррекция (максимум 2).
-      default: 0
+        От 0 до 2. Чем выше — тем сильнее влияние разницы между целевой и внешней температурой.
+      default: 1
       selector:
         number:
           min: 0
           max: 2
           step: 0.1
 
-alias: Калибровка термоголовки TRV-M2Z V2 с учетом режима нагрева
+alias: Калибровка термоголовки TRV-M2Z V3
 description: ''
 mode: single
 max_exceeded: silent
@@ -55,15 +42,11 @@ trigger:
   - platform: state
     entity_id: !input external_temp
     for:
-      hours: 0
-      minutes: 0
       seconds: 15
   - platform: state
     entity_id: !input climate_names
     attribute: hvac_action
     for:
-      hours: 0
-      minutes: 0
       seconds: 15
 
 condition:
@@ -82,25 +65,23 @@ action:
             climate_name: "{{ repeat.item }}"
             device_calib: "number.{{ climate_name.removeprefix('climate.') }}_local_temperature_calibration"
             external_temp: "{{ states(external_temperature) | float() }}"
-            local_temp: "{{ state_attr(climate_name, 'current_temperature') | float() }}"
             target_temp: "{{ state_attr(climate_name, 'temperature') | float() }}"
             hvac_action: "{{ state_attr(climate_name, 'hvac_action') }}"
             actual_calib: "{{ states(device_calib) | float(0) }}"
 
-            # Определяем направление калибровки
-            temp_diff_base: "{{ external_temp - local_temp }}"
-            
-            # Применяем смещение только при нагреве
-            adjusted_temp_diff: >
+            # Определение коррекции в зависимости от режима
+            diff_target_external: "{{ target_temp - external_temp }}"
+
+            raw_correction: >
               {% if hvac_action == 'heating' %}
-                {{ temp_diff_base * (1 + offset_factor) }}
+                {{ diff_target_external * offset_factor }}
               {% elif hvac_action in ['idle', 'off'] %}
-                {{ temp_diff_base * (1 - offset_factor) }}
+                {{ diff_target_external * offset_factor * -0.5 }}
               {% else %}
-                {{ temp_diff_base }}
+                0
               {% endif %}
 
-            target_calib: "{{ local_temp + adjusted_temp_diff - external_temp }}"
+            target_calib: "{{ raw_correction }}"
             target_calib_rounded: "{{ ((target_calib * 2) | round) / 2 }}"
             target_calib_clamped: "{{ [ [target_calib_rounded, 9] | min, -9] | max }}"
 
