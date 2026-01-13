@@ -1,57 +1,60 @@
 blueprint:
-  name: Калибровка термоголовки TRV-M2Z на основе внешнего датчика температуры (улучшенная версия)
-  description: Автоматическая калибровка температуры термоголовки TRV-M2Z на основе показаний внешнего датчика температуры с учетом режима работы.
+  name: Калибровка термоголовки TRV-M2Z на основе внешнего датчика температуры V3
+  description: |
+    Автоматическая калибровка термоголовки TRV-M2Z с учётом режима работы и точности измерения.
   domain: automation
   input:
     external_temp:
       name: Выберите внешний датчик температуры
-      description: Список внешних датчиков температуры используемых как источник показаний температуры.
       selector:
         entity:
-          domain:
-            - sensor
-          device_class:
-            - temperature
+          domain: sensor
+          device_class: temperature
           multiple: false
     climate_names:
-      name: Выберите термоголовку TRV-M2Z
-      description: Список термоголовок.
+      name: Выберите термоголовки TRV-M2Z
       selector:
         entity:
-          domain:
-            - climate
+          domain: climate
           multiple: true
-  source_url: https://github.com/bibibi-Matrix/calib_trv_external_temp/blob/main/blueprints/calib_test.yaml
+    temp_accuracy:
+      name: Точность измерения температуры
+      description: Используется для расчёта границ (± точность от целевой температуры).
+      default: 0.5
+      selector:
+        number:
+          min: 0.1
+          max: 2
+          step: 0.1
+  source_url: https://github.com/bibibi-Matrix/calib_trv_external_temp
 
-alias: Калибровка термоголовки TRV-M2Z (улучшенная)
+alias: Калибровка термоголовки TRV-M2Z V3
 description: ''
+mode: single
+max_exceeded: silent
+
 variables:
   climate_names: !input climate_names
   external_temperature: !input external_temp
+  temp_accuracy: !input temp_accuracy
 
 trigger:
   - platform: state
     entity_id: !input external_temp
     for:
-      hours: 0
-      minutes: 0
       seconds: 15
-      milliseconds: 0
   - platform: state
     entity_id: !input climate_names
     for:
-      hours: 0
-      minutes: 0
       seconds: 15
-      milliseconds: 0
 
 condition:
   condition: and
   conditions:
     - condition: template
-      value_template: '{{ states(external_temperature) != ''unavailable'' }}'
+      value_template: "{{ states(external_temperature) not in ['unavailable', 'unknown'] }}"
     - condition: template
-      value_template: '{{ states(external_temperature) != ''unknown'' }}'
+      value_template: "{{ states(external_temperature) | float(-999) != -999 }}"
 
 action:
   - repeat:
@@ -60,63 +63,39 @@ action:
         - variables:
             climate_name: "{{ repeat.item }}"
             device_calib: "number.{{ climate_name.removeprefix('climate.') }}_local_temperature_calibration"
-            external_temp: "{{ states(external_temperature) | float }}"
-            local_temp: "{{ state_attr(climate_name, 'current_temperature') | float }}"
-            target_temp: "{{ state_attr(climate_name, 'temperature') | float }}"
             hvac_action: "{{ state_attr(climate_name, 'hvac_action') }}"
-            hvac_mode: "{{ states(climate_name) }}"
+            external_temp: "{{ states(external_temperature) | float() }}"
+            local_temp: "{{ state_attr(climate_name, 'current_temperature') | float() }}"
+            target_temp: "{{ state_attr(climate_name, 'temperature') | float() }}"
             actual_calib: "{{ states(device_calib) | float(0) }}"
-            
-            # Определяем разницу температур
-            temp_diff: "{{ (external_temp | float - local_temp | float) }}"
-            
-            # Температурная точность (обычно 0.5°C для большинства TRV)
-            temp_accuracy: 0.5
-            
-            # Логика калибровки в зависимости от режима работы
-            target_calib_raw: >-
-              {% set diff = temp_diff | float %}
-              {% if hvac_mode == 'off' %}
-                {{ diff }}
-              {% elif hvac_action == 'heating' %}
-                {{ diff - temp_accuracy }}
-              {% elif hvac_action == 'idle' %}
-                {{ diff + temp_accuracy }}
-              {% else %}
-              {{ diff }}
-              {% endif %}
-            
-            # Преобразуем в число и округляем до ближайшего 0.5
-            target_calib_numeric: >-
-              {% set raw_val = target_calib_raw | float %}
-              {{ (raw_val / 0.5) | round * 0.5 }}
-            
-            # Ограничиваем диапазон калибровки (-9 до +9)
-            target_calib_final: >-
-              {% set val = target_calib_numeric | float %}
-              {{ [9, val] | min | round(1) }}
-              
-            target_calib_final_clamped: >-
-              {% set val = target_calib_final | float %}
-              {{ [-9, val] | max | round(1) }}
-            
-            # Проверяем необходимость изменения (с учетом точности 0.1)
-            calib_needed: >-
-              {% set current = actual_calib | float | round(1) %}
-              {% set target = target_calib_final_clamped | float | round(1) %}
-              {{ current != target }}
 
-        - alias: "Проверка необходимости калибровки"
-          condition: template
-          value_template: "{{ calib_needed }}"
+            lower_bound: "{{ target_temp - temp_accuracy }}"
+            upper_bound: "{{ target_temp + temp_accuracy }}"
+
+            # Выбор целевой температуры в зависимости от режима
+            target_for_calibration: >
+              {% if hvac_action == 'off' %}
+                {{ external_temp }}
+              {% elif hvac_action == 'idle' %}
+                {{ lower_bound }}
+              {% elif hvac_action == 'heating' %}
+                {{ upper_bound }}
+              {% else %}
+                {{ external_temp }}
+              {% endif %}
+
+            # Расчёт новой калибровки
+            new_calib_raw: "{{ target_for_calibration - (local_temp - actual_calib) }}"
+            new_calib_rounded: "{{ ((new_calib_raw * 2) | round) / 2 }}"
+            new_calib_clamped: "{{ [ [new_calib_rounded, 9] | min, -9] | max }}"
+
+        - condition: template
+          value_template: "{{ actual_calib != new_calib_clamped }}"
 
         - service: number.set_value
-          data:
-            value: "{{ target_calib_final_clamped }}"
           target:
             entity_id: "{{ device_calib }}"
+          data:
+            value: "{{ new_calib_clamped }}"
 
   - delay: 5
-
-mode: single
-max_exceeded: silent
