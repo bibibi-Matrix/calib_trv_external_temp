@@ -1,7 +1,8 @@
 blueprint:
-  name: Калибровка термоголовки TRV-M2Z на основе внешнего датчика температуры V2
+  name: Калибровка термоголовки TRV-M2Z на основе внешнего датчика температуры V3
   description: |
     Автоматическая калибровка температуры термоголовки TRV-M2Z на основе показаний внешнего датчика температуры.
+    Поддерживает уточнённые стратегии округления в зависимости от состояния термоголовки и разницы температур.
   domain: automation
   input:
     external_temp:
@@ -41,7 +42,7 @@ blueprint:
           step: 0.1
   source_url: https://github.com/bibibi-Matrix/calib_trv_external_temp/blob/main/blueprints/calib_test.yaml
 
-alias: Калибровка термоголовки TRV-M2Z V2
+alias: Калибровка термоголовки TRV-M2Z V3
 description: ''
 mode: single
 max_exceeded: silent
@@ -85,13 +86,12 @@ action:
             
             hvac_action: "{{ state_attr(climate_name, 'hvac_action') | default('off') }}"
 
-            # Условное округление
+            # Уточнённое условное округление
             target_calib_rounded: >-
-              {% if hvac_action == 'off' %}
-                {{ ((target_calib * 2) | round) / 2 }}
-              {% elif hvac_action == 'heating' %}
+              {% set diff = external_temp - target_temp %}
+              {% if hvac_action == 'heat' and diff < 0 and diff > -0.5 %}
                 {{ (target_calib // 0.5) * 0.5 }}
-              {% elif hvac_action == 'idle' %}
+              {% elif hvac_action == 'idle' and diff >= 0 and diff >= 0.5 %}
                 {{ -( (-target_calib) // 0.5 ) * 0.5 }}
               {% else %}
                 {{ ((target_calib * 2) | round) / 2 }}
