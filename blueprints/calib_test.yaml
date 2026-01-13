@@ -93,7 +93,7 @@ action:
               {% set diff = external_temp - target_temp %}
               {% if hvac_action == 'heat' and diff < 0 and diff > -0.5 %}
                 {{ (target_calib // 0.5) * 0.5 }}
-              {% elif hvac_action == 'idle' and diff >= 0 and diff >= 0.5 %}
+              {% elif hvac_action == 'idle' and diff < 0 and diff > -0.5 %}
                 {{ -( (-target_calib) // 0.5 ) * 0.5 }}
               {% else %}
                 {{ ((target_calib * 2) | round) / 2 }}
