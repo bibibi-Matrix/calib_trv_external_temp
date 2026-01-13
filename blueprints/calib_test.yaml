@@ -1,34 +1,30 @@
 blueprint:
-  name: Калибровка термоголовки TRV-M2Z на основе внешнего датчика температуры V3
+  name: Калибровка термоголовки TRV-M2Z на основе внешнего датчика температуры V4
   description: |
-    Автоматическая калибровка термоголовки TRV-M2Z
+    Автоматическая калибровка температуры термоголовки TRV-M2Z на основе показаний внешнего датчика температуры с учетом режима работы.
   domain: automation
   input:
     external_temp:
       name: Выберите внешний датчик температуры
+      description: Список внешних датчиков температуры, используемых как источник показаний температуры.
       selector:
         entity:
-          domain: sensor
-          device_class: temperature
+          domain:
+            - sensor
+          device_class:
+            - temperature
           multiple: false
     climate_names:
-      name: Выберите термоголовки TRV-M2Z
+      name: Выберите термоголовку TRV-M2Z
+      description: Список термоголовок.
       selector:
         entity:
-          domain: climate
+          domain:
+            - climate
           multiple: true
-    temp_accuracy:
-      name: Точность измерения температуры
-      description: Используется для расчёта границ (± точность от целевой температуры).
-      default: 0.5
-      selector:
-        number:
-          min: 0.1
-          max: 2
-          step: 0.1
   source_url: https://github.com/bibibi-Matrix/calib_trv_external_temp/blob/main/blueprints/calib_test.yaml
 
-alias: Калибровка термоголовки TRV-M2Z V3
+alias: Калибровка термоголовки TRV-M2Z V4
 description: ''
 mode: single
 max_exceeded: silent
@@ -36,16 +32,20 @@ max_exceeded: silent
 variables:
   climate_names: !input climate_names
   external_temperature: !input external_temp
-  temp_accuracy: !input temp_accuracy
 
 trigger:
   - platform: state
     entity_id: !input external_temp
     for:
+      hours: 0
+      minutes: 0
       seconds: 15
   - platform: state
     entity_id: !input climate_names
+    attribute: hvac_action
     for:
+      hours: 0
+      minutes: 0
       seconds: 15
 
 condition:
@@ -63,29 +63,28 @@ action:
         - variables:
             climate_name: "{{ repeat.item }}"
             device_calib: "number.{{ climate_name.removeprefix('climate.') }}_local_temperature_calibration"
-            hvac_action: "{{ state_attr(climate_name, 'hvac_action') }}"
             external_temp: "{{ states(external_temperature) | float() }}"
             local_temp: "{{ state_attr(climate_name, 'current_temperature') | float() }}"
             target_temp: "{{ state_attr(climate_name, 'temperature') | float() }}"
+            hvac_action: "{{ state_attr(climate_name, 'hvac_action') }}"
             actual_calib: "{{ states(device_calib) | float(0) }}"
 
-            lower_bound: "{{ target_temp - 0.5 }}"   # Порог включения нагрева
-            upper_bound: "{{ target_temp }}"         # Порог выключения нагрева (переход в idle)
+            # Границы
+            lower_bound: "{{ target_temp - 0.5 }}"
+            upper_bound: "{{ target_temp }}"
 
-            # Выбор целевой температуры в зависимости от режима
-            target_for_calibration: >
-              {% if hvac_action == 'off' %}
-                {{ external_temp }}
+            # Определение желаемой внешней температуры для калибровки
+            desired_external_temp: >-
+              {% if hvac_action == 'heating' %}
+                {{ lower_bound }}
               {% elif hvac_action == 'idle' %}
                 {{ upper_bound }}
-              {% elif hvac_action == 'heating' %}
-                {{ lower_bound }}
               {% else %}
                 {{ external_temp }}
               {% endif %}
 
-            # Расчёт новой калибровки
-            new_calib_raw: "{{ target_for_calibration - (local_temp - actual_calib) }}"
+            # Расчёт новой калибровки: local_temp + (desired_external_temp - external_temp)
+            new_calib_raw: "{{ actual_calib + (desired_external_temp - external_temp) }}"
             new_calib_rounded: "{{ ((new_calib_raw * 2) | round) / 2 }}"
             new_calib_clamped: "{{ [ [new_calib_rounded, 9] | min, -9] | max }}"
 
