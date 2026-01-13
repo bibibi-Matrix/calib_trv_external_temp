@@ -1,7 +1,7 @@
 blueprint:
   name: Калибровка термоголовки TRV-M2Z на основе внешнего датчика температуры V2
   description: |
-    Автоматическая калибровка температуры термоголовки TRV-M2Z на основе показаний внешнего датчика температуры с учётом текущего режима работы.
+    Автоматическая калибровка температуры термоголовки TRV-M2Z на основе показаний внешнего датчика температуры.
   domain: automation
   input:
     external_temp:
@@ -46,11 +46,6 @@ description: ''
 mode: single
 max_exceeded: silent
 
-variables:
-  climate_names: !input climate_names
-  external_temperature: !input external_temp
-  offset_factor: !input offset_factor
-
 trigger:
   - platform: state
     entity_id: !input external_temp
@@ -60,7 +55,6 @@ trigger:
       seconds: 15
   - platform: state
     entity_id: !input climate_names
-    attribute: hvac_action
     for:
       hours: 0
       minutes: 0
@@ -81,37 +75,28 @@ action:
         - variables:
             climate_name: "{{ repeat.item }}"
             device_calib: "number.{{ climate_name.removeprefix('climate.') }}_local_temperature_calibration"
-            hvac_action: "{{ state_attr(climate_name, 'hvac_action') }}"
             external_temp: "{{ states(external_temperature) | float() }}"
             local_temp: "{{ state_attr(climate_name, 'current_temperature') | float() }}"
             target_temp: "{{ state_attr(climate_name, 'temperature') | float() }}"
             actual_calib: "{{ states(device_calib) | float(0) }}"
-
-            # Разница между внешней и целевой температурой
             temp_diff: "{{ external_temp - target_temp }}"
-
-            # Применение коэффициента коррекции
             calibration_offset: "{{ temp_diff * offset_factor }}"
+            target_calib: "{{ external_temp - (local_temp - actual_calib) + calibration_offset }}"
+            
+            hvac_action: "{{ state_attr(climate_name, 'hvac_action') | default('off') }}"
 
-            # Базовая цель калибровки
-            base_target_calib: "{{ external_temp - (local_temp - actual_calib) + calibration_offset }}"
-
-            # Учёт режима работы
-            adjusted_target_calib: >-
+            # Условное округление
+            target_calib_rounded: >-
               {% if hvac_action == 'off' %}
-                {{ base_target_calib }}
-              {% elif hvac_action == 'idle' %}
-                {{ base_target_calib + 0.5 }}
+                {{ ((target_calib * 2) | round) / 2 }}
               {% elif hvac_action == 'heating' %}
-                {{ base_target_calib }}
+                {{ (target_calib // 0.5) * 0.5 }}
+              {% elif hvac_action == 'idle' %}
+                {{ -( (-target_calib) // 0.5 ) * 0.5 }}
               {% else %}
-                {{ base_target_calib }}
+                {{ ((target_calib * 2) | round) / 2 }}
               {% endif %}
 
-            # Округление до 0.5
-            target_calib_rounded: "{{ ((adjusted_target_calib * 2) | round) / 2 }}"
-
-            # Ограничение диапазона [-9, 9]
             target_calib_clamped: "{{ [ [target_calib_rounded, 9] | min, -9] | max }}"
 
         - condition: template
