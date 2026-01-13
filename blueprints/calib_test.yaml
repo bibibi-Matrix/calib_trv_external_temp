@@ -1,7 +1,7 @@
 blueprint:
   name: Калибровка термоголовки TRV-M2Z на основе внешнего датчика температуры V3
   description: |
-    Автоматическая калибровка термоголовки TRV-M2Z с учётом режима работы и точности измерения.
+    Автоматическая калибровка термоголовки TRV-M2Z
   domain: automation
   input:
     external_temp:
@@ -69,17 +69,17 @@ action:
             target_temp: "{{ state_attr(climate_name, 'temperature') | float() }}"
             actual_calib: "{{ states(device_calib) | float(0) }}"
 
-            lower_bound: "{{ target_temp - temp_accuracy }}"
-            upper_bound: "{{ target_temp + temp_accuracy }}"
+            lower_bound: "{{ target_temp - 0.5 }}"   # Порог включения нагрева
+            upper_bound: "{{ target_temp }}"         # Порог выключения нагрева (переход в idle)
 
             # Выбор целевой температуры в зависимости от режима
             target_for_calibration: >
               {% if hvac_action == 'off' %}
                 {{ external_temp }}
               {% elif hvac_action == 'idle' %}
-                {{ lower_bound }}
-              {% elif hvac_action == 'heating' %}
                 {{ upper_bound }}
+              {% elif hvac_action == 'heating' %}
+                {{ lower_bound }}
               {% else %}
                 {{ external_temp }}
               {% endif %}
