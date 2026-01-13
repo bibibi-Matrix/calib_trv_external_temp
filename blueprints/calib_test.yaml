@@ -101,9 +101,9 @@ action:
               {% if hvac_action == 'off' %}
                 {{ base_target_calib }}
               {% elif hvac_action == 'idle' %}
-                {{ base_target_calib - 0.5 }}
-              {% elif hvac_action == 'heating' %}
                 {{ base_target_calib + 0.5 }}
+              {% elif hvac_action == 'heating' %}
+                {{ base_target_calib }}
               {% else %}
                 {{ base_target_calib }}
               {% endif %}
