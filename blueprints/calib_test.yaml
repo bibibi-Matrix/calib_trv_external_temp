@@ -96,14 +96,14 @@ action:
             # Базовая цель калибровки
             base_target_calib: "{{ external_temp - (local_temp - actual_calib) + calibration_offset }}"
 
-            # Учёт режима работы (обратная логика)
+            # Учёт режима работы
             adjusted_target_calib: >-
               {% if hvac_action == 'off' %}
                 {{ base_target_calib }}
               {% elif hvac_action == 'idle' %}
-                {{ base_target_calib + 0.5 }}
-              {% elif hvac_action == 'heating' %}
                 {{ base_target_calib - 0.5 }}
+              {% elif hvac_action == 'heating' %}
+                {{ base_target_calib + 0.5 }}
               {% else %}
                 {{ base_target_calib }}
               {% endif %}
